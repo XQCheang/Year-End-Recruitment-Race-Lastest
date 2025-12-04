@@ -1,4 +1,4 @@
-import { Recruiter, Applicant, CampaignConfig } from './types';
+import { Recruiter, Applicant, CampaignConfig } from '../types';
 
 const STORAGE_KEY = 'recruitment_race_year_end_v1';
 const CONFIG_KEY = 'recruitment_race_config_v1';
@@ -228,35 +228,4 @@ export const syncApplicantCount = (recruiterId: string, totalCount: number, targ
   all[index] = recruiter;
   saveData(all);
   return recruiter;
-};
-
-// Helper to filter score by campaign date
-export const getRecruiterCampaignScore = (recruiter: Recruiter, config: CampaignConfig): number => {
-    const start = new Date(config.startDate).getTime();
-    const end = new Date(config.endDate).getTime();
-    
-    // End of day adjustment
-    const endOfDay = new Date(end);
-    endOfDay.setHours(23, 59, 59, 999);
-    
-    return recruiter.applicants.filter(app => {
-        const appTime = new Date(app.appliedDate).getTime();
-        return appTime >= start && appTime <= endOfDay.getTime();
-    }).length;
-};
-
-export const getRecruiterWeeklyScore = (recruiter: Recruiter, config: CampaignConfig): number => {
-    if (!config.weeklyStartDate || !config.weeklyEndDate) return 0;
-
-    const start = new Date(config.weeklyStartDate).getTime();
-    const end = new Date(config.weeklyEndDate).getTime();
-    
-    // End of day adjustment for weekly end date
-    const endOfDay = new Date(end);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    return recruiter.applicants.filter(app => {
-        const appTime = new Date(app.appliedDate).getTime();
-        return appTime >= start && appTime <= endOfDay.getTime();
-    }).length;
 };

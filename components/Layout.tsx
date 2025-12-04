@@ -1,5 +1,5 @@
 import React from 'react';
-import { Recruiter } from './types';
+import { Recruiter } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;

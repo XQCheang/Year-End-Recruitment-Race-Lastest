@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Recruiter, CampaignConfig } from './types';
+import { Recruiter, CampaignConfig } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { getStoredData, syncApplicantCount, addManualApplicants, updateRecruiterName, updateWeeklyCount, addNewRecruiter, getCampaignConfig, saveCampaignConfig, getRecruiterCampaignScore, getRecruiterWeeklyScore } from './storage';
-import { getCoachingTip } from './gemini';
+import { getStoredData, syncApplicantCount, addManualApplicants, updateRecruiterName, updateWeeklyCount, addNewRecruiter, getCampaignConfig, saveCampaignConfig } from '../services/storage';
+import { getCoachingTip } from '../services/gemini';
 
 interface DashboardProps {
   currentUser: Recruiter | null; // Can be null if Admin
@@ -44,7 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
   const [updateMode, setUpdateMode] = useState<'SYNC_TOTAL' | 'ADD_MANUAL'>('SYNC_TOTAL');
   const [inputValue, setInputValue] = useState<string>('');
   const [editName, setEditName] = useState<string>('');
-  const [editWeeklyCount, setEditWeeklyCount] = useState<string>(''); // Not used but kept for legacy
+  const [editWeeklyCount, setEditWeeklyCount] = useState<string>(''); // New State for Weekly
   const [showSqlHelp, setShowSqlHelp] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
@@ -54,32 +54,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
   // Settings Modal Inputs
   const [settingStart, setSettingStart] = useState('');
   const [settingEnd, setSettingEnd] = useState('');
-  const [weeklyStart, setWeeklyStart] = useState('');
-  const [weeklyEnd, setWeeklyEnd] = useState('');
   
   // Admin: Which user is being updated?
   const [targetUserId, setTargetUserId] = useState<string>('');
 
   useEffect(() => {
-    // Load config first
+    const data = getStoredData();
+    // Sort by total applicants descending
+    data.sort((a, b) => b.applicants.length - a.applicants.length);
+    setAllRecruiters(data);
+    
+    // Load config
     const cfg = getCampaignConfig();
     setConfig(cfg);
     
-    // Load Data
-    const data = getStoredData();
-    // Sort by Campaign Score (not absolute total)
-    data.sort((a, b) => getRecruiterCampaignScore(b, cfg) - getRecruiterCampaignScore(a, cfg));
-    
-    setAllRecruiters(data);
-    
-    if (currentUser && data.length > 0) {
-        // Find the top leader based on campaign score
-        const leader = data[0]; 
-        if (leader.id !== currentUser.id) {
-            getCoachingTip(currentUser, leader).then(setAiTip);
-        } else {
-             setAiTip("You are in the lead! Keep the momentum going to secure the prize!");
-        }
+    if (currentUser && data.length > 0 && data[0].id !== currentUser.id) {
+        getCoachingTip(currentUser, data[0]).then(setAiTip);
     } else if (currentUser) {
         setAiTip("You are in the lead! Keep the momentum going to secure the prize!");
     } else if (isAdmin) {
@@ -160,14 +150,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
 
           if (modalType === 'SETTINGS') {
               if (settingStart && settingEnd) {
-                  const newConfig = { 
-                      startDate: settingStart, 
-                      endDate: settingEnd,
-                      weeklyStartDate: weeklyStart || undefined,
-                      weeklyEndDate: weeklyEnd || undefined
-                  };
-                  saveCampaignConfig(newConfig);
-                  setConfig(newConfig);
+                  saveCampaignConfig({ startDate: settingStart, endDate: settingEnd });
+                  setConfig({ startDate: settingStart, endDate: settingEnd });
                   changesMade = true;
               }
           } else if (modalType === 'CREATE') {
@@ -182,7 +166,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
                   changesMade = true;
               }
 
-              // 2. Update Score if value entered
+              // 2. Update Weekly Count
+              const weeklyVal = parseInt(editWeeklyCount, 10);
+              if (isAdmin && !isNaN(weeklyVal) && weeklyVal !== editingRecruiter.weeklyCount) {
+                  updateWeeklyCount(editingRecruiter.id, weeklyVal);
+                  changesMade = true;
+              }
+
+              // 3. Update Score if value entered
               const val = parseInt(inputValue, 10);
               if (!isNaN(val)) {
                   if (updateMode === 'ADD_MANUAL') {
@@ -228,16 +219,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
       setModalType('SETTINGS');
       setSettingStart(config.startDate);
       setSettingEnd(config.endDate);
-      setWeeklyStart(config.weeklyStartDate || '');
-      setWeeklyEnd(config.weeklyEndDate || '');
       setIsModalOpen(true);
   }
 
   const rank = currentUser ? allRecruiters.findIndex(r => r.id === currentUser.id) + 1 : 0;
-  
-  // Calculate Campaign Totals
-  const totalCampaignApplicants = allRecruiters.reduce((acc, curr) => acc + getRecruiterCampaignScore(curr, config), 0);
-  const myCampaignScore = currentUser ? getRecruiterCampaignScore(currentUser, config) : 0;
+  const totalCampaignApplicants = allRecruiters.reduce((acc, curr) => acc + curr.applicants.length, 0);
 
   // Validation logic
   const currentCount = editingRecruiter ? editingRecruiter.applicants.length : 0;
@@ -249,11 +235,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
 
   const isScoreValid = !isNaN(inputValNum) && finalTotal >= 0;
   const isNameChanged = isAdmin && editName !== editingRecruiter?.name && editName.trim() !== '';
+  const isWeeklyChanged = isAdmin && parseInt(editWeeklyCount, 10) !== editingRecruiter?.weeklyCount;
   
   const canSubmit = !loading && (
       modalType === 'SETTINGS' ? (settingStart !== '' && settingEnd !== '') :
       modalType === 'CREATE' ? newParticipantName.trim().length > 0 :
-      ((inputValue !== '' && isScoreValid) || isNameChanged)
+      ((inputValue !== '' && isScoreValid) || isNameChanged || isWeeklyChanged)
   );
 
   return (
@@ -265,10 +252,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
         {/* Card 1: Score/Total */}
         <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden group">
             <h3 className="text-slate-400 text-sm font-medium uppercase tracking-wider">
-                {isAdmin ? 'Total Campaign Applicants' : 'My Campaign Score'}
+                {isAdmin ? 'Total Campaign Applicants' : 'My Total Score'}
             </h3>
             <p className="text-5xl font-bold text-white mt-2">
-                {isAdmin ? totalCampaignApplicants : myCampaignScore}
+                {isAdmin ? totalCampaignApplicants : currentUser?.applicants.length}
             </p>
             <div className="mt-4 flex items-center gap-2">
                 <span className="px-2 py-1 bg-emerald-500/10 text-emerald-400 text-xs font-bold rounded">
@@ -393,8 +380,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
                     const isTop5 = idx < 5;
                     const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : null;
                     const isCurrentUser = currentUser && r.id === currentUser.id;
-                    const campaignScore = getRecruiterCampaignScore(r, config);
-                    const weeklyScore = getRecruiterWeeklyScore(r, config);
                     
                     return (
                         <div 
@@ -427,7 +412,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
                             <div className="text-right pl-2 flex flex-col items-end gap-1">
                                 <div className="flex items-center gap-2">
                                      <span className={`block text-xl font-bold ${isTop5 ? 'text-emerald-400' : 'text-slate-400'}`}>
-                                        {campaignScore}
+                                        {r.applicants.length}
                                     </span>
                                     {isAdmin && (
                                         <button 
@@ -440,12 +425,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
                                     )}
                                 </div>
                                 {/* Weekly Badge */}
-                                {config.weeklyStartDate && (
-                                    <div className="bg-slate-900/50 px-2 py-0.5 rounded border border-slate-700/50">
-                                        <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Weekly:</span>
-                                        <span className="text-xs font-bold text-white">{weeklyScore}</span>
-                                    </div>
-                                )}
+                                <div className="bg-slate-900/50 px-2 py-0.5 rounded border border-slate-700/50">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Weekly:</span>
+                                    <span className="text-xs font-bold text-white">{r.weeklyCount || 0}</span>
+                                </div>
                             </div>
                         </div>
                     );
@@ -472,7 +455,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
                     {modalType === 'SETTINGS' ? (
                         /* SETTINGS FORM */
                         <div className="space-y-6">
-                            <h4 className="text-sm font-bold text-white border-b border-slate-700 pb-2">Campaign Duration (Chart & Total Score)</h4>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2 block">Start Date</label>
@@ -493,31 +475,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
                                     />
                                 </div>
                             </div>
-
-                            <h4 className="text-sm font-bold text-white border-b border-slate-700 pb-2 mt-6">Weekly Challenge (Badge Count)</h4>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2 block">Weekly Start</label>
-                                    <input 
-                                        type="date"
-                                        value={weeklyStart}
-                                        onChange={(e) => setWeeklyStart(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-2 block">Weekly End</label>
-                                    <input 
-                                        type="date"
-                                        value={weeklyEnd}
-                                        onChange={(e) => setWeeklyEnd(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                                    />
-                                </div>
-                            </div>
-                            
-                            <p className="text-xs text-slate-500 mt-2">
-                                Changing "Campaign Duration" adjusts the bar chart and total score. "Weekly Challenge" only updates the "Weekly:" badge number.
+                            <p className="text-xs text-slate-500">
+                                Changing dates will adjust the chart view. Existing applicant data outside these dates will not be deleted, but will be hidden from the daily chart.
                             </p>
                             <button
                                 onClick={handleUpdateScore}
@@ -581,6 +540,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ currentUser, isAdmin, onRe
                                                 onChange={(e) => setEditName(e.target.value)}
                                                 placeholder="Enter full name"
                                                 className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-emerald-400 uppercase font-bold tracking-wider mb-2 block">Weekly Count</label>
+                                            <input 
+                                                type="number"
+                                                value={editWeeklyCount}
+                                                onChange={(e) => setEditWeeklyCount(e.target.value)}
+                                                placeholder="0"
+                                                className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500 transition-colors"
                                             />
                                         </div>
                                     </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Recruiter } from './types';
-import { getStoredData, getRecruiterCampaignScore, getCampaignConfig } from './storage';
+import { Recruiter } from '../types';
+import { getStoredData } from '../services/storage';
 
 interface LoginProps {
   onRecruiterLogin: (id: string) => void;
@@ -16,9 +16,6 @@ export const Login: React.FC<LoginProps> = ({ onRecruiterLogin, onAdminLogin }) 
   const [showPasswordInput, setShowPasswordInput] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-
-  // Configuration for displaying correct score
-  const config = getCampaignConfig();
 
   useEffect(() => {
     const data = getStoredData();
@@ -74,30 +71,27 @@ export const Login: React.FC<LoginProps> = ({ onRecruiterLogin, onAdminLogin }) 
                     Leaderboard Participants
                 </h2>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {users.map((user) => {
-                    const campaignScore = getRecruiterCampaignScore(user, config);
-                    return (
-                        <button
-                        key={user.id}
-                        onClick={() => onRecruiterLogin(user.id)}
-                        className="group relative bg-slate-900 hover:bg-indigo-900/50 border border-slate-700 hover:border-red-500 rounded-xl p-4 flex flex-col items-center transition-all duration-200 hover:-translate-y-1 shadow-lg hover:shadow-red-500/20"
-                        >
-                        <div className="relative mb-3">
-                            <img 
-                            src={user.avatar} 
-                            alt={user.name} 
-                            className="w-16 h-16 rounded-full bg-slate-700 object-cover border-2 border-slate-600 group-hover:border-red-400 transition-colors" 
-                            />
-                            <div className="absolute -bottom-1 -right-1 bg-slate-800 rounded-full px-1.5 py-0.5 border border-slate-600 text-[10px] text-slate-300 font-mono">
-                            {campaignScore}
-                            </div>
+                {users.map((user) => (
+                    <button
+                    key={user.id}
+                    onClick={() => onRecruiterLogin(user.id)}
+                    className="group relative bg-slate-900 hover:bg-indigo-900/50 border border-slate-700 hover:border-red-500 rounded-xl p-4 flex flex-col items-center transition-all duration-200 hover:-translate-y-1 shadow-lg hover:shadow-red-500/20"
+                    >
+                    <div className="relative mb-3">
+                        <img 
+                        src={user.avatar} 
+                        alt={user.name} 
+                        className="w-16 h-16 rounded-full bg-slate-700 object-cover border-2 border-slate-600 group-hover:border-red-400 transition-colors" 
+                        />
+                        <div className="absolute -bottom-1 -right-1 bg-slate-800 rounded-full px-1.5 py-0.5 border border-slate-600 text-[10px] text-slate-300 font-mono">
+                        {user.applicants.length}
                         </div>
-                        <span className="text-sm font-semibold text-slate-200 group-hover:text-white text-center leading-tight">
-                            {user.name}
-                        </span>
-                        </button>
-                    );
-                })}
+                    </div>
+                    <span className="text-sm font-semibold text-slate-200 group-hover:text-white text-center leading-tight">
+                        {user.name}
+                    </span>
+                    </button>
+                ))}
                 </div>
             </div>
 

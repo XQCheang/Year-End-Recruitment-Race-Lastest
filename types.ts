@@ -29,4 +29,6 @@ export interface CampaignState {
 export interface CampaignConfig {
   startDate: string; // YYYY-MM-DD
   endDate: string;   // YYYY-MM-DD
+  weeklyStartDate?: string;
+  weeklyEndDate?: string;
 }

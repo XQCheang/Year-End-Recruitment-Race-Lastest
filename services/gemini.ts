@@ -1,22 +1,23 @@
-import { GoogleGenAI } from "@google/genai";
-import { Recruiter } from "./types";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { Recruiter } from "../types";
+
+// Safe initialization
+const apiKey = process.env.API_KEY || '';
+const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
 export const getCoachingTip = async (
   currentUser: Recruiter, 
   leader: Recruiter
 ): Promise<string> => {
-  if (!process.env.API_KEY) return "Keep pushing! You're doing great.";
-
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!genAI) return "Keep pushing! You're doing great.";
 
   const userCount = currentUser.applicants.length;
   const leaderCount = leader.applicants.length;
   const diff = leaderCount - userCount;
 
   try {
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: `
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const result = await model.generateContent(`
         Context: A sales/recruiter leaderboard competition.
         User: ${currentUser.name} has ${userCount} applicants.
         Leader: ${leader.name} has ${leaderCount} applicants.
@@ -25,9 +26,8 @@ export const getCoachingTip = async (
         Task: Provide a short, high-energy, 1-sentence motivational coaching tip for ${currentUser.name}. 
         If they are winning, congratulate them. If losing, tell them how close they are or to push harder.
         Be spicy and competitive.
-      `
-    });
-    return response.text || "Compete to win!";
+      `);
+    return result.response.text() || "Compete to win!";
   } catch (error) {
     console.error("Gemini Error:", error);
     return "Focus on your unique value proposition to attract more candidates!";
@@ -35,28 +35,24 @@ export const getCoachingTip = async (
 };
 
 export const parseUnstructuredData = async (text: string): Promise<any[]> => {
-  if (!process.env.API_KEY) return [];
-
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!genAI) return [];
 
   try {
-    const response = await ai.models.generateContent({ 
+    const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash",
-        contents: `
+        generationConfig: { responseMimeType: "application/json" }
+    });
+    
+    const result = await model.generateContent(`
         Extract applicant data from this unstructured text. 
         Return ONLY a JSON array of objects with keys: "name", "email", "date" (ISO string).
         If date is missing, use today. Generate fake email if missing based on name.
         
         Text:
         ${text}
-      `,
-      config: { responseMimeType: "application/json" }
-    });
+      `);
     
-    if (response.text) {
-        return JSON.parse(response.text);
-    }
-    return [];
+    return JSON.parse(result.response.text());
   } catch (error) {
     console.error("Parsing error", error);
     return [];
